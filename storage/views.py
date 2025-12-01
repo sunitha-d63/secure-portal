@@ -397,11 +397,10 @@ def reset_password(request):
             profile.private_key_encrypted = wrapped_private
             profile.save()
 
-
             files = EncryptedFile.objects.filter(user=user)
             for f in files:
                 try:
-                    f.encrypted_file.close()   
+                    f.encrypted_file.close()
                 except:
                     pass
                 f.encrypted_file.delete(save=False)
@@ -417,6 +416,12 @@ def reset_password(request):
 
     else:
         form = ResetPasswordForm()
+
+        messages.warning(
+            request,
+            "Resetting your password will permanently delete all your encrypted files because they cannot be decrypted without your old password.",
+            extra_tags="reset",
+        )
 
     return render(request, "reset_password.html", {"form": form})
 
