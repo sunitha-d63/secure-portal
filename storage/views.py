@@ -53,6 +53,9 @@ def register_view(request):
     return render(request, "register.html", {"form": form})
 
 
+from .utils import get_client_ip, get_geo_data, get_device_info
+from storage.models import LoginActivity
+
 def login_view(request):
     email_error = ""
     password_error = ""
@@ -85,11 +88,68 @@ def login_view(request):
 
         if user:
 
+
             if user.profile.mfa_enabled:
                 request.session["mfa_user_id"] = user.id
-                return redirect("mfa_verify")  
+                return redirect("mfa_verify")
 
             login(request, user)
+
+
+            ip = get_client_ip(request)
+            geo = get_geo_data(ip)
+            device = get_device_info(request)
+
+            LoginActivity.objects.create(
+                user=user,
+                ip=ip,
+                country=geo.get("country"),
+                city=geo.get("city"),
+                browser=device.get("browser"),
+                os=device.get("os"),
+            )
+
+            last_log = LoginActivity.objects.filter(user=user).order_by('-timestamp')[1:2].first()
+
+            def _alert_exists(alert_type, message):
+                return SecurityAlert.objects.filter(
+                    user=user,
+                    alert_type=alert_type,
+                    message=message,
+                    is_resolved=False
+                ).exists()
+
+            if last_log:
+
+                if last_log.ip != ip:
+                    msg = f"New login detected from IP {ip}. Previous IP was {last_log.ip}."
+                    if not _alert_exists("New Login Location", msg):
+                        SecurityAlert.objects.create(
+                            user=user,
+                            alert_type="New Login Location",
+                            message=msg,
+                            severity=SecurityAlert.SEVERITY_MEDIUM,
+                        )
+
+                last_browser = (last_log.browser or "").lower().strip()
+                last_os = (last_log.os or "").lower().strip()
+                cur_browser = (device.get("browser") or "").lower().strip()
+                cur_os = (device.get("os") or "").lower().strip()
+
+                if last_browser != cur_browser or last_os != cur_os:
+                    msg = (
+                        f"New device detected: {device.get('browser') or 'Unknown browser'} "
+                        f"on {device.get('os') or 'Unknown OS'}. Previous device: "
+                        f"{last_log.browser or 'Unknown'} on {last_log.os or 'Unknown'}."
+                    )
+                    if not _alert_exists("New Device Login", msg):
+                        SecurityAlert.objects.create(
+                            user=user,
+                            alert_type="New Device Login",
+                            message=msg,
+                            severity=SecurityAlert.SEVERITY_HIGH,
+                        )
+
             return redirect("home")
 
         return render(request, "login.html", {

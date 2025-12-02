@@ -159,7 +159,7 @@
 
               {% else %}
                 <a href="{% url 'shared_download' s.id %}" 
-                   class="btn btn-sm btn-primary px-3 shadow-sm">
+                   class="btn btn-sm btn-secondary px-3 shadow-sm">
                   <i class="bi bi-box-arrow-in-down-right me-1"></i> Open
                 </a>
               {% endif %}
@@ -182,13 +182,10 @@
 
 </div>
 
-
-<!-- Security Activity Section -->
 <h4 class="section-title mt-5">Security Activity</h4>
 
 <div class="accordion mt-3" id="securityAccordion">
 
-  <!-- Login Activity -->
   <div class="accordion-item">
     <h2 class="accordion-header">
       <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#loginLogs">
@@ -232,7 +229,6 @@
     </div>
   </div>
 
-  <!-- Download Activity -->
   <div class="accordion-item mt-3">
     <h2 class="accordion-header">
       <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#downloadLogs">
@@ -280,7 +276,7 @@
 
 </div>
 
-<h4 class="section-title mt-4">Security Alerts</h4>
+{% comment %} <h4 class="section-title mt-4">Security Alerts</h4>
 
 {% if alerts %}
 <ul class="list-group mb-4">
@@ -313,10 +309,7 @@
 </ul>
 {% else %}
 <p class="text-muted">No alerts.</p>
-{% endif %}
-
-
-
+{% endif %} {% endcomment %}
 
 
 {% endblock %}
