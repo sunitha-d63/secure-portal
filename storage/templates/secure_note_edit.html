@@ -11,10 +11,13 @@
     <h2 class="mb-3 Securetitle">Edit Secure Note</h2>
 
     {% if messages %}
-        {% for m in messages %}
+    {% for m in messages %}
+        {% if "note_edit" in m.tags %}
             <div class="alert alert-danger py-2">{{ m }}</div>
-        {% endfor %}
-    {% endif %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+
 
     {% if not unlocked %}
     <div class="card shadow-sm p-4">

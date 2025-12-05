@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 def index(request):
     return render(request, "homepage.html")
 
+from .encryption.master_key import load_master_key
+from .encryption.keywrap import wrap_private_key
+
 def register_view(request):
     if request.method == 'POST':
         form = RegisterForm(request.POST)
@@ -34,14 +37,25 @@ def register_view(request):
         if form.is_valid():
             user = form.save()
 
+            # Generate RSA keys
             public_pem, private_pem = generate_rsa_keypair()
 
             raw_password = form.cleaned_data['password1']
-            wrapped = wrap_private_key(private_pem, raw_password)
 
+            # Load master recovery key
+            master_key = load_master_key()
+
+            # Wrap private key with user password
+            wrapped_with_password = wrap_private_key(private_pem, raw_password)
+
+            # Wrap private key with master key
+            wrapped_with_master = wrap_private_key(private_pem, master_key.hex())
+
+            # Save to profile
             profile = user.profile
             profile.public_key = public_pem.decode()
-            profile.private_key_encrypted = wrapped
+            profile.private_key_encrypted = wrapped_with_password
+            profile.private_key_master = wrapped_with_master  # <--- NEW
             profile.save()
 
             messages.success(request, "Registration successful! Please log in.", extra_tags="register")
@@ -359,6 +373,11 @@ def delete_view(request, file_id):
 
     return redirect("files")
 
+from django.core.mail import send_mail, BadHeaderError
+import logging
+import random
+
+logger = logging.getLogger(__name__)
 
 def forgot_password(request):
     if request.method == "POST":
@@ -373,19 +392,35 @@ def forgot_password(request):
         otp = str(random.randint(100000, 999999))
         PasswordResetOTP.objects.create(user=user, otp=otp)
 
-        send_mail(
-            "Password Reset OTP",
-            f"Your OTP is: {otp}\nValid for 5 minutes.",
-            "noreply@secureportal.com",
-            [email]
-        )
+        # -------------------------
+        # SAFE email sending block
+        # -------------------------
+        try:
+            send_mail(
+                "Password Reset OTP",
+                f"Your OTP is: {otp}\nValid for 5 minutes.",
+                "noreply@secureportal.com",
+                [email],
+            )
+        except OSError as e:
+            logger.exception("Network error while sending email")
+            messages.error(
+                request,
+                "We could not send the OTP due to a temporary network issue. Please try again later.",
+                extra_tags="forgot"
+            )
+            return render(request, "forgot_password.html")
 
+        except BadHeaderError:
+            messages.error(request, "Invalid email header.", extra_tags="forgot")
+            return render(request, "forgot_password.html")
+
+        # Store email in session to verify later
         request.session["reset_email"] = email
         messages.success(request, "OTP sent to your email.", extra_tags="forgot")
         return redirect("verify_otp")
 
     return render(request, "forgot_password.html")
-
 
 def verify_otp(request):
     email = request.session.get("reset_email")
@@ -424,6 +459,8 @@ def verify_otp(request):
 
     return render(request, "verify_otp.html")
 
+from .encryption.master_key import load_master_key
+from .encryption.keywrap import unwrap_private_key, wrap_private_key
 
 def reset_password(request):
 
@@ -446,26 +483,28 @@ def reset_password(request):
         if form.is_valid():
             new_pw = form.cleaned_data["password1"]
 
+            # STEP 1: Change Django password
             user.set_password(new_pw)
             user.save()
 
-            public_pem, private_pem = generate_rsa_keypair()
-            wrapped_private = wrap_private_key(private_pem, new_pw)
+            # STEP 2: Load master recovery key
+            master_key = load_master_key()
 
+            # STEP 3: Decrypt old RSA private key using master key
+            private_key = unwrap_private_key(
+                user.profile.private_key_master,
+                master_key.hex()
+            )
+
+            # STEP 4: Re-encrypt private key with NEW password
+            new_wrapped_private = wrap_private_key(private_key, new_pw)
+
+            # STEP 5: Save updated private key
             profile = user.profile
-            profile.public_key = public_pem.decode()
-            profile.private_key_encrypted = wrapped_private
+            profile.private_key_encrypted = new_wrapped_private
             profile.save()
 
-            files = EncryptedFile.objects.filter(user=user)
-            for f in files:
-                try:
-                    f.encrypted_file.close()
-                except:
-                    pass
-                f.encrypted_file.delete(save=False)
-                f.delete()
-
+            # Clear session flags
             request.session.pop("reset_email", None)
             request.session.pop("otp_verified", None)
 
@@ -479,11 +518,12 @@ def reset_password(request):
 
         messages.warning(
             request,
-            "Resetting your password will permanently delete all your encrypted files because they cannot be decrypted without your old password.",
+            "You can now reset your password safely. Your files will NOT be deleted.",
             extra_tags="reset",
         )
 
     return render(request, "reset_password.html", {"form": form})
+
 
 from .models import SharedFile
 @login_required
@@ -901,7 +941,6 @@ def mfa_verify(request):
         token = request.POST.get("token", "").strip()
 
         if pyotp.TOTP(profile.mfa_secret).verify(token, valid_window=1):
-            # Clear session → complete login
             auth_login(request, user)
             request.session.pop("mfa_user_id", None)
 

@@ -8,8 +8,11 @@ from datetime import timedelta
 
 class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
+
     public_key = models.TextField(blank=True, null=True)
-    private_key_encrypted = models.BinaryField(blank=True, null=True)
+    private_key_encrypted = models.BinaryField(blank=True, null=True)  
+    private_key_master = models.BinaryField(blank=True, null=True)    
+
     role = models.CharField(max_length=20, default='user')
 
     mfa_enabled = models.BooleanField(default=False)
@@ -17,6 +20,7 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user.username} Profile"
+
 
 @receiver(post_save, sender=User)
 def create_or_update_user_profile(sender, instance, created, **kwargs):
